@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Manual Técnico — Editor Completo</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{background:#0b1220;color:#e6eef6;font-family:system-ui;margin:0}
+h1{font-size:18px;margin:0}
+header{padding:12px;border-bottom:1px solid rgba(255,255,255,.1)}
+button{cursor:pointer}
+.container{display:flex;height:calc(100vh - 60px)}
+.sidebar{width:230px;padding:12px;overflow:auto;border-right:1px solid rgba(255,255,255,.1)}
+.main{flex:1;padding:12px;overflow:auto}
+.input{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#e6eef6;margin:4px 0}
+.button{padding:8px 10px;border-radius:6px;background:#063447;color:#e6eef6;border:0;margin:4px 0}
+.button.ghost{background:transparent;border:1px solid rgba(255,255,255,.2)}
+.brand,.proc{padding:10px;margin:4px 0;border-radius:8px;background:rgba(255,255,255,.05)}
+.brand.selected,.proc.selected{outline:2px solid #0ea5a4}
+.editor{background:rgba(255,255,255,.05);min-height:300px;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.15)}
+.toolbar button{padding:6px;border-radius:6px;background:transparent;border:1px solid rgba(255,255,255,.15);color:#e6eef6;margin-right:4px}
+.thumb{width:60px;height:44px;border-radius:6px;overflow:hidden;display:inline-block;margin:4px 2px;border:1px solid rgba(255,255,255,.15)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.small{font-size:12px;color:#9fb0c1}
+</style>
+</head>
+<body>
+<header>
+  <h1>MANUAL TÉCNICO — Editor enriquecido</h1>
+</header>
+
+<div class="container">
+
+  <div class="sidebar">
+    <div class="small">Marcas</div>
+    <div id="brands"></div>
+
+    <input id="brandInput" class="input" placeholder="Nueva marca">
+    <button id="addBrand" class="button">+ Marca</button>
+
+    <hr style="border:0;border-top:1px solid rgba(255,255,255,.15);margin:12px 0">
+
+    <div class="small">Procedimientos</div>
+    <div id="procs"></div>
+
+    <input id="procInput" class="input" placeholder="Nuevo procedimiento">
+    <button id="addProc" class="button">+ Procedimiento</button>
+  </div>
+
+  <div class="main">
+    <input id="procTitle" class="input" placeholder="Título del procedimiento">
+
+    <div class="small">Imágenes</div>
+    <div id="thumbs"></div>
+    <button id="addImg" class="button ghost">Agregar imagen</button>
+    <button id="clearImg" class="button ghost">Borrar imágenes</button>
+    <input type="file" id="imgInput" accept="image/*" multiple style="display:none">
+
+    <div class="toolbar" style="margin-top:12px">
+      <button data-cmd="bold"><b>B</b></button>
+      <button data-cmd="italic"><i>I</i></button>
+      <button data-cmd="insertUnorderedList">• Lista</button>
+      <button data-cmd="insertOrderedList">1. Lista</button>
+      <button data-cmd="formatBlock" data-val="H3">H3</button>
+      <button data-cmd="removeFormat">Clear</button>
+    </div>
+
+    <div id="editor" class="editor" contenteditable="true"></div>
+
+    <button id="save" class="button" style="margin-top:12px">Guardar</button>
+  </div>
+
+</div>
+
+<script>
+let DATA = JSON.parse(localStorage.getItem("MTAPP_v1") || '{"brands":[],"procs":[],"counters":{}}');
+if(DATA.brands.length===0){
+  DATA.brands=["SIEMENS","FAGOR","COMAU","FANUC","OMRON","PILZ","IGM","MAZAK"].map((n,i)=>({id:"M"+(i+1),name:n}));
+}
+function save(){ localStorage.setItem("MTAPP_v1",JSON.stringify(DATA)); }
+
+const brandsDiv=document.getElementById("brands");
+const procsDiv=document.getElementById("procs");
+const brandInput=document.getElementById("brandInput");
+const procInput=document.getElementById("procInput");
+const procTitle=document.getElementById("procTitle");
+const editor=document.getElementById("editor");
+const thumbs=document.getElementById("thumbs");
+
+let currentBrand=null;
+let currentProc=null;
+let stagingImages=[];
+
+function renderBrands(){
+  brandsDiv.innerHTML="";
+  DATA.brands.forEach(b=>{
+    const el=document.createElement("div");
+    el.className="brand"+(currentBrand===b.id?" selected":"");
+    el.textContent=b.name;
+    el.onclick=()=>{currentBrand=b.id;renderBrands();renderProcs();clearEditor();};
+    brandsDiv.appendChild(el);
+  });
+}
+function renderProcs(){
+  procsDiv.innerHTML="";
+  DATA.procs.filter(p=>p.machine_id===currentBrand).forEach(p=>{
+    const el=document.createElement("div");
+    el.className="proc"+(currentProc===p.id?" selected":"");
+    el.innerHTML=p.title;
+    el.onclick=()=>loadProc(p.id);
+    procsDiv.appendChild(el);
+  });
+}
+function clearEditor(){
+  currentProc=null;
+  procTitle.value="";
+  editor.innerHTML="";
+  stagingImages=[];
+  renderThumbs();
+}
+
+function loadProc(id){
+  const p=DATA.procs.find(x=>x.id===id);
+  if(!p)return;
+  currentProc=p.id;
+  procTitle.value=p.title;
+  editor.innerHTML=p.html||"";
+  stagingImages=p.images||[];
+  renderThumbs();
+  renderProcs();
+}
+
+document.getElementById("addBrand").onclick=()=>{
+  const n=brandInput.value.trim();
+  if(!n)return;
+  const id="M"+(DATA.brands.length+1);
+  DATA.brands.push({id,name:n.toUpperCase()});
+  brandInput.value="";
+  save();renderBrands();
+};
+
+document.getElementById("addProc").onclick=()=>{
+  if(!currentBrand)return alert("Selecciona una marca");
+  const t=procInput.value.trim();
+  if(!t)return;
+  const id="P"+(DATA.procs.length+1);
+  const p={id,machine_id:currentBrand,title:t,html:"",images:[]};
+  DATA.procs.push(p);
+  procInput.value="";
+  save();renderProcs();loadProc(id);
+};
+
+function renderThumbs(){
+  thumbs.innerHTML="";
+  stagingImages.forEach((src,i)=>{
+    const d=document.createElement("div");
+    d.className="thumb";
+    d.innerHTML="<img src='"+src+"'>";
+    d.onclick=()=>{if(confirm("Borrar imagen?")){stagingImages.splice(i,1);renderThumbs();}};
+    thumbs.appendChild(d);
+  });
+}
+
+document.getElementById("addImg").onclick=()=>document.getElementById("imgInput").click();
+document.getElementById("imgInput").onchange=e=>{
+  [...e.target.files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{stagingImages.push(r.result);renderThumbs();};
+    r.readAsDataURL(f);
+  });
+};
+
+document.getElementById("clearImg").onclick=()=>{stagingImages=[];renderThumbs();};
+
+document.querySelectorAll(".toolbar button").forEach(btn=>{
+  btn.onclick=()=>{
+    const cmd=btn.dataset.cmd;
+    if(cmd==="formatBlock")document.execCommand(cmd,false,btn.dataset.val);
+    else document.execCommand(cmd,false,null);
+  };
+});
+
+document.getElementById("save").onclick=()=>{
+  if(!currentProc)return alert("Selecciona un procedimiento");
+  const p=DATA.procs.find(x=>x.id===currentProc);
+  p.title=procTitle.value.trim();
+  p.html=editor.innerHTML;
+  p.images=stagingImages;
+  save();renderProcs();
+  alert("Guardado");
+};
+
+renderBrands();
+renderProcs();
+</script>
+
+</body>
+</html>
